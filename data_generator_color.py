@@ -1,46 +1,36 @@
-# -*- coding: utf-8 -*-
-# 改自DnCNN，获得彩色图片的pitch
-
-# =============================================================================
-#  @article{zhang2017beyond,
-#    title={Beyond a {Gaussian} denoiser: Residual learning of deep {CNN} for image denoising},
-#    author={Zhang, Kai and Zuo, Wangmeng and Chen, Yunjin and Meng, Deyu and Zhang, Lei},
-#    journal={IEEE Transactions on Image Processing},
-#    year={2017},
-#    volume={26}, 
-#    number={7}, 
-#    pages={3142-3155}, 
-#  }
-# by Kai Zhang (08/2018)
-# cskaizhang@gmail.com
-# https://github.com/cszn
-# modified on the code from https://github.com/husqin/DnCNN-keras
-# =============================================================================
-
-# no need to run this code separately
-
-
 import glob
-#import os
+import os
 import cv2
 import numpy as np
+from PIL import Image
 
+'''
+$ python create_patch.py 
+将 train 中的图片分成 patch
+并保存在 patch 中
+ ├── create_patch.py
+ ├── train
+ │   ├── 0.jpg
+ │   ├── 1.jpg
+ │   ├── 2.jpg
+ │   └── ...
+ └── patch
+     ├── 0_0.jpg
+     ├── 0_1.jpg
+     ├── 0_2.jpg
+     ├── ...
+     ├── 1_0.jpg
+     ├── 1_1.jpg
+     ├── 1_2.jpg
+     └── ...
+'''
 
+# TODO: 写成参数
 patch_size, stride = 40, 10
 aug_times = 1
 scales = [1, 0.9, 0.8, 0.7]
 batch_size = 128
 
-
-def show(x,title=None,cbar=False,figsize=None):
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=figsize)
-    plt.imshow(x,interpolation='nearest')
-    if title:
-        plt.title(title)
-    if cbar:
-        plt.colorbar()
-    plt.show()
 
 def data_aug(img, mode=0):
 
@@ -61,57 +51,53 @@ def data_aug(img, mode=0):
     elif mode == 7:
         return np.flipud(np.rot90(img, k=3))
 
-def gen_patches(file_name):
+def gen_patches(file_name, index, save_dir = 'patch'):
 
     # read image
-    img = cv2.imread(file_name)
-    h, w, _ = img.shape
-    patches = []
+    image = Image.open(file_name)
+    # 注意PIL的size和opencv的shape是反的
+    w, h = image.size[0], image.size[1] 
+    img = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR) # PIL2cv
+    
+    cnt = 0
     for s in scales:
-        h_scaled, w_scaled = int(h*s),int(w*s)
-        img_scaled = cv2.resize(img, (h_scaled,w_scaled), interpolation=cv2.INTER_CUBIC)
+        h_scaled, w_scaled = int(h*s), int(w*s)
+        img_scaled = cv2.resize(img, (h_scaled, w_scaled), interpolation=cv2.INTER_CUBIC)
         # extract patches
-        for i in range(0, h_scaled-patch_size+1, stride):
-            for j in range(0, w_scaled-patch_size+1, stride):
-                x = img_scaled[i:i+patch_size, j:j+patch_size]
-                h1, w1, _ = x.shape
-                if h1 < 40 or w1 < 40:
+        for j in range(0, h_scaled-patch_size+1, stride):
+            for i in range(0, w_scaled-patch_size+1, stride):
+                try:
+                    x = img_scaled[i:i+patch_size, j:j+patch_size]
+                except:
+                    print(file_name + "超出范围\n")
+                    print('x: ' + str(i) + ' ,y: ' + str(j) + '\n')
+                    print('边界: ' + str(h_scaled) + ', ' + str(w_scaled))
                     continue
-                #patches.append(x)        
+                
                 # data aug
                 for k in range(0, aug_times):
                     x_aug = data_aug(x, mode=np.random.randint(0,8))
-                    patches.append(x_aug)
-                
-    return patches
+                    try:
+                        cv2.imwrite(os.path.join(save_dir, str(index) + '_' + str(cnt)+'.jpg'), x_aug)
+                    except:
+                        print(file_name + "保存错误\n")
+                    cnt += 1
+                    
 
-def datagenerator(data_dir='testsets\\CBSD68',verbose=False):
+def create_patch(data_dir = 'train', save_dir = 'patch'):
     
-    file_list = glob.glob(data_dir+'/*.jpg')  # get name list of all .png files
-    # initrialize
-    data = []
-    # generate patches
-    for i in range(len(file_list)):
-        patch = gen_patches(file_list[i])
-        data.extend(patch)
-        if verbose:
-            print(str(i+1)+'/'+ str(len(file_list)) + ' is done ^_^')
-    data = np.array(data, dtype='uint8')
-    # data = data.reshape((data.shape[0]*data.shape[1],data.shape[2],data.shape[3],3))
-    discard_n = len(data)-len(data)//batch_size*batch_size;
-    data = np.delete(data,range(discard_n),axis = 0)
-    print('^_^-training data finished-^_^')
-    return data
+    # get name list of all .jpg files
+    filenames = glob.glob(os.path.join(data_dir, '*.jpg'))  
 
+    for i, filename in enumerate(filenames):
+        try:
+            gen_patches(filename, i, save_dir)
+            # print(filename + ' finish\n')
+        except:
+            print(filename + ' fail\n')
+            continue
+    
+    
 if __name__ == '__main__':   
-
-    data = datagenerator(data_dir=r'D:\临时\pic')
-    
-
-#    print('Shape of result = ' + str(res.shape))
-#    print('Saving data...')
-#    if not os.path.exists(save_dir):
-#            os.mkdir(save_dir)
-#    np.save(save_dir+'clean_patches.npy', res)
-#    print('Done.')
-    
+    # data = create_patch(data_dir=os.path.join('BSDS300', 'images', 'train'))
+    data = create_patch()
